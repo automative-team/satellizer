@@ -12,7 +12,7 @@ angular.module('satellizer')
 
       oauth1.open = function(options, userData) {
         angular.extend(defaults, options);
-        return popup.open(defaults.url, defaults.popupOptions)
+        return popup.open(defaults.url, defaults.popupOptions, defaults.redirectUri)
           .then(function(response) {
             return oauth1.exchangeForToken(response, userData)
           });

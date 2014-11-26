@@ -13,10 +13,71 @@ angular.module('satellizer')
 
       popup.popupWindow = popupWindow;
 
-      popup.open = function(url, options) {
+      var processReply = function(deferred, source) {
+        var queryParams = source.search.substring(1).replace(/\/$/, '');
+        var hashParams = source.hash.substring(1).replace(/\/$/, '');
+        var hash = utils.parseQueryString(hashParams);
+        var qs = utils.parseQueryString(queryParams);
+
+        angular.extend(qs, hash);
+
+        if (qs.error) {
+          deferred.reject({ error: qs.error });
+        } else {
+          deferred.resolve(qs);
+        }
+      };
+
+      var parseUrl = function(url) {
+        var parser = document.createElement('a');
+        parser.href = url;
+        return parser;
+      };
+
+      popup.open = function(url, options, redirectUri) {
         var optionsString = popup.stringifyOptions(popup.prepareOptions(options || {}));
 
         popupWindow = window.open(url, '_blank', optionsString);
+
+        // Mobile support
+        // based on hello.js code, if inAppBrowser is been used then the
+        // addEventListener method is added to the webview
+        if (window.cordova || window.PhoneGap) {
+          var deferred = $q.defer();
+
+          // Get the origin of the redirect URI
+          var a = parseUrl(redirectUri);
+          var redirect_uri = a.origin || (a.protocol + "//" + a.hostname);
+
+          // Listen to changes in the InAppBrowser window
+          var onLoadStart = function(e){
+            var url = e.url;
+
+            if(url.indexOf(redirect_uri)!==0){
+              return;
+            }
+
+            // Split appart the URL
+            var a = parseUrl(url);
+
+            // process any received response
+            processReply(deferred, a);
+
+            // make sure the popup is closed
+            popupWindow.close();
+
+            // make sure we don't leak any windows
+            popupWindow.removeEventListener('loadstart', onLoadStart);
+          };
+
+          popupWindow.addEventListener('loadstart', onLoadStart);
+
+          if (popupWindow.focus){
+            popupWindow.focus();
+          }
+
+          return deferred.promise;
+        }
 
         if (popupWindow && popupWindow.focus) {
           popupWindow.focus();
@@ -30,19 +91,8 @@ angular.module('satellizer')
         polling = $interval(function() {
           try {
             if (popupWindow.document.domain === document.domain && (popupWindow.location.search || popupWindow.location.hash)) {
-              var queryParams = popupWindow.location.search.substring(1).replace(/\/$/, '');
-              var hashParams = popupWindow.location.hash.substring(1).replace(/\/$/, '');
-              var hash = utils.parseQueryString(hashParams);
-              var qs = utils.parseQueryString(queryParams);
 
-              angular.extend(qs, hash);
-
-              if (qs.error) {
-                deferred.reject({ error: qs.error });
-              } else {
-                deferred.resolve(qs);
-              }
-
+              processReply(deferred, popupWindow.location);
               popupWindow.close();
               $interval.cancel(polling);
             }
